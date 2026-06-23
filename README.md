@@ -8,7 +8,7 @@ A working implementation of a personal-memory query system that ingests raw even
 
 1. **Clone and Install**
    ```bash
-   git clone <your-repo>
+   git clone https://github.com/jigs1188/Memorae.git
    cd memorae
    pip install -r requirements.txt
    ```
