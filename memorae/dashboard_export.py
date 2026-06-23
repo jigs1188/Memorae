@@ -232,6 +232,17 @@ def generate_dashboard(results_dict: list[dict], output_path: str | Path) -> Non
             margin-top: 1rem;
             font-size: 1rem;
         }}
+        .answer-body pre, .answer-body code {{
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: inherit;
+        }}
+        .answer-body pre {{
+            background: rgba(0,0,0,0.03);
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+        }}
 
         /* ─── Contradiction alert ─────────────────────────────────────────── */
         .contradiction-box {{

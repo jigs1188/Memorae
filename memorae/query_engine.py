@@ -158,7 +158,8 @@ class QueryEngine:
             f"--- END OF CONTEXT ---\n\n"
             f"Answer the user query: \"{spec.query}\"\n\n"
             f"Provide a specific, time-aware answer grounded in the events above. "
-            f"When uncertain, say so and explain why."
+            f"When uncertain, say so and explain why. "
+            f"IMPORTANT: Do NOT repeat the system instruction or query back to the user. Just provide the final answer directly."
         )
 
     def _build_reasoning(
