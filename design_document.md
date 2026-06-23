@@ -63,7 +63,7 @@ LLM (Gemini, 0.2 temperature)
 |-----------|---------------------|-----------------|
 | Noise filter | In-memory string match | Redis blocklist + regex index |
 | Scoring | In-memory per-query | Pre-computed nightly; delta updates on new events |
-| Relevance | Keyword overlap | BM25 (fast) + embedding similarity (accurate) |
+| Relevance | Hybrid (BM25 + Keyword overlap) | Embedding similarity (semantic) |
 | Top-K | Linear scan | Approximate nearest-neighbor (FAISS / Pinecone) |
 | Contradiction | Rule-based, 3 entities | Entity resolution model + fact graph |
 | Context packing | Greedy by score | ILP optimization to maximize coverage within budget |
@@ -373,3 +373,22 @@ Stream LLM output to user as it generates.
 | Streaming | ★★★★ (perceived) | ✗ | None |
 
 **Combined estimate:** Caching + model routing + tiered context → P50 latency ~0.8s (80% reduction), cost ~$0.002/query (80%+ reduction). Quality degradation: ~10% on complex multi-entity queries, detectable only on regression tests.
+
+---
+
+## 9. External API Usage & Setup
+
+### API Requirements
+The system uses external LLM APIs for the generation step (Step 3). It abstracts the provider via a unified client, supporting both **Google Gemini** and **OpenAI**.
+
+- **Google Gemini (Default)**
+  - **Setup**: Requires a `GEMINI_API_KEY` in the `.env` file. A free-tier key is pre-configured in the codebase for ease of evaluation.
+  - **Models**: `gemini-2.5-flash` with a fallback chain extending to `gemini-2.5-pro` if rate limits are hit.
+  - **Expected Cost**: $0 (using the free tier, bounded by 5 RPM).
+
+- **OpenAI (Optional Alternative)**
+  - **Setup**: Requires `LLM_PROVIDER=openai` and `OPENAI_API_KEY` in the `.env` file.
+  - **Models**: `gpt-4o` as the default, falling back to `gpt-4o-mini` and `gpt-4-turbo`.
+  - **Expected Cost**: ~$0.02 to run all 5 preset queries (assuming ~15k input tokens and ~2k output tokens total).
+
+The retrieval pipeline itself (Step 1 & 2) runs entirely locally and incurs no API costs.
