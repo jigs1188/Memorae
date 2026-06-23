@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Logs and outputs
+*.log
+results.json
+eval_report.json
+
+# Environment
+.env
+
+# AI / Assignment artifacts (excluded per instructions)
+ASSESSMENT.pdf
+design_document.md
+walkthrough.md
+implementation_plan.md
