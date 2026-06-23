@@ -41,7 +41,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 console = Console()
 
-DATA_PATH = Path(__file__).parent.parent / "memorae_mock_events.json"
+DATA_PATH = Path(__file__).parent / "memorae_mock_events.json"
 
 
 # ── Rich display ───────────────────────────────────────────────────────────────

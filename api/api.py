@@ -36,7 +36,7 @@ from llm.llm_client import get_provider_info
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 logger = logging.getLogger(__name__)
 
-DATA_PATH = Path(__file__).parent.parent.parent / "memorae_mock_events.json"
+DATA_PATH = Path(__file__).parent.parent / "memorae_mock_events.json"
 RESULTS_PATH = Path(__file__).parent.parent / "results.json"
 
 # ── App setup ──────────────────────────────────────────────────────────────────

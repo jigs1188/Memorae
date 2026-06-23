@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 NOW = datetime.fromisoformat(SCENARIO_NOW.replace("Z", "+00:00"))
-DATA_PATH = Path(__file__).parent.parent.parent / "memorae_mock_events.json"
+DATA_PATH = Path(__file__).parent.parent / "memorae_mock_events.json"
 REPORT_PATH = Path(__file__).parent / "eval_report.json"
 
 
