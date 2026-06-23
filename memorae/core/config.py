@@ -16,7 +16,7 @@ from pathlib import Path
 # ── Load .env from project root (parent of memorae/) ──────────────────────────
 try:
     from dotenv import load_dotenv
-    _env_path = Path(__file__).parent.parent / ".env"
+    _env_path = Path(__file__).parent.parent.parent / ".env"
     load_dotenv(dotenv_path=_env_path, override=True)
 except ImportError:
     pass  # dotenv optional; fall back to OS env vars

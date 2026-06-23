@@ -117,19 +117,26 @@ python evaluation.py
 ```
 memorae_mock_events.json      ← dataset (not modified)
 memorae/
-  config.py          ← constants, config, and .env loader
-  llm_client.py      ← unified router
-  gemini_client.py   ← Gemini API client
-  openai_client.py   ← OpenAI API client
-  event_store.py     ← event indexing, scoring, retrieval
-  context_builder.py ← token-aware context construction
-  query_engine.py    ← 4-step pipeline per query
-  main.py            ← CLI entry point
-  dashboard_export.py← HTML dashboard generator
-  evaluation.py      ← offline + regression + online evals
+  core/
+    config.py          ← constants, config, and .env loader
+    event_store.py     ← event indexing, scoring, retrieval
+    context_builder.py ← token-aware context construction
+    query_engine.py    ← 4-step pipeline per query
+  llm/
+    llm_client.py      ← unified router
+    gemini_client.py   ← Gemini API client
+    openai_client.py   ← OpenAI API client
+  api/
+    api.py             ← FastAPI web server
+  ui/
+    dashboard_export.py← HTML dashboard generator
+  evaluation/
+    evaluation.py      ← offline + regression + online evals
+    smoke_test.py      ← quick system checks
+  main.py              ← CLI entry point
   requirements.txt
 README.md
-.env.example         ← template for API keys
+.env.example           ← template for API keys
 ```
 
 ---

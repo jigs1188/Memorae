@@ -16,10 +16,10 @@ from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from typing import Any
 
-from event_store import EventStore, ScoredEvent
-from context_builder import build_context, BuiltContext
-from llm_client import generate
-from config import SCENARIO_NOW, MAX_SELECTED_EVENTS
+from core.event_store import EventStore, ScoredEvent
+from core.context_builder import build_context, BuiltContext
+from llm.llm_client import generate
+from core.config import SCENARIO_NOW, MAX_SELECTED_EVENTS
 
 logger = logging.getLogger(__name__)
 

@@ -27,17 +27,17 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from config import SCENARIO_NOW
-from event_store import load_events, EventStore
-from query_engine import QueryEngine, QuerySpec, QUERY_SPECS, QueryResult
-from llm_client import get_provider_info
+from core.config import SCENARIO_NOW
+from core.event_store import load_events, EventStore
+from core.query_engine import QueryEngine, QuerySpec, QUERY_SPECS, QueryResult
+from llm.llm_client import get_provider_info
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 logger = logging.getLogger(__name__)
 
-DATA_PATH = Path(__file__).parent.parent / "memorae_mock_events.json"
-RESULTS_PATH = Path(__file__).parent / "results.json"
+DATA_PATH = Path(__file__).parent.parent.parent / "memorae_mock_events.json"
+RESULTS_PATH = Path(__file__).parent.parent / "results.json"
 
 # ── App setup ──────────────────────────────────────────────────────────────────
 app = FastAPI(

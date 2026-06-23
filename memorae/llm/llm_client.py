@@ -9,7 +9,7 @@ Based on the LLM_PROVIDER setting in .env.
 
 from __future__ import annotations
 import logging
-from config import (
+from core.config import (
     LLM_PROVIDER,
     OPENAI_API_KEY,
     OPENAI_MODEL_FALLBACK_CHAIN,
@@ -33,7 +33,7 @@ def generate(
     logger.info(f"Generating with provider={LLM_PROVIDER}")
 
     if LLM_PROVIDER == "openai":
-        from openai_client import generate as openai_generate
+        from llm.openai_client import generate as openai_generate
         return openai_generate(
             prompt,
             temperature=temperature,
@@ -41,7 +41,7 @@ def generate(
             max_rpm_wait=max_rpm_wait
         )
     else:
-        from gemini_client import generate as gemini_generate
+        from llm.gemini_client import generate as gemini_generate
         return gemini_generate(
             prompt,
             temperature=temperature,

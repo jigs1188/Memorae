@@ -23,11 +23,11 @@ from rich.table import Table
 from rich.markdown import Markdown
 from rich import box
 
-from config import SCENARIO_NOW
-from event_store import load_events, EventStore
-from query_engine import QueryEngine, QuerySpec, QUERY_SPECS, QueryResult
-from llm_client import get_provider_info
-from dashboard_export import generate_dashboard
+from core.config import SCENARIO_NOW
+from core.event_store import load_events, EventStore
+from core.query_engine import QueryEngine, QuerySpec, QUERY_SPECS, QueryResult
+from llm.llm_client import get_provider_info
+from ui.dashboard_export import generate_dashboard
 
 # ── Logging setup ──────────────────────────────────────────────────────────────
 logging.basicConfig(

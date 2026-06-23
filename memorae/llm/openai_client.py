@@ -6,7 +6,7 @@ import re
 import time
 import logging
 from typing import Optional
-from config import OPENAI_API_KEY, OPENAI_MODEL_FALLBACK_CHAIN
+from core.config import OPENAI_API_KEY, OPENAI_MODEL_FALLBACK_CHAIN
 logger = logging.getLogger(__name__)
 
 def _extract_retry_delay(err_str: str, default: float = 5.0) -> float:

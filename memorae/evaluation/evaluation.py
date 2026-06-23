@@ -23,15 +23,16 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
-from config import SCENARIO_NOW
-from event_store import load_events, EventStore
-from query_engine import QueryEngine, QuerySpec, QUERY_SPECS
+from core.config import SCENARIO_NOW
+from core.event_store import load_events, EventStore
+from core.query_engine import QueryEngine, QuerySpec, QUERY_SPECS
 
 logger = logging.getLogger(__name__)
 console = Console()
 
 NOW = datetime.fromisoformat(SCENARIO_NOW.replace("Z", "+00:00"))
-DATA_PATH = Path(__file__).parent.parent / "memorae_mock_events.json"
+DATA_PATH = Path(__file__).parent.parent.parent / "memorae_mock_events.json"
+REPORT_PATH = Path(__file__).parent / "eval_report.json"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -267,7 +268,7 @@ class OfflineEvaluator:
 
     def test_high_urgency_events_surface(self) -> TestResult:
         """Events with explicit deadlines must have high urgency scores."""
-        from event_store import _contains_any, URGENCY_SIGNALS
+        from core.event_store import _contains_any, URGENCY_SIGNALS
         urgent_events = [e for e in self.store.events if e.has_urgency]
         passed = len(urgent_events) >= 20  # expect many deadline-bearing events
         return TestResult(

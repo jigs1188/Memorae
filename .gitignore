@@ -12,8 +12,9 @@ eval_report.json
 memorae.log
 
 # Temporary / Extraneous files
-smoke_test.py
 temp_script.js
+fix_json.py
+verify.py
 
 # Assessment / Unwanted Docs
 ASSESSMENT.pdf

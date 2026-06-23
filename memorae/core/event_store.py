@@ -35,7 +35,7 @@ except ImportError:
     HAS_BM25 = False
     BM25Okapi = None  # type: ignore
 
-from config import (
+from core.config import (
     NOISE_PATTERNS,
     URGENCY_SIGNALS,
     SOURCE_PRIORITY,

@@ -34,8 +34,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-from event_store import Event, ScoredEvent
-from config import TARGET_CONTEXT_TOKENS, MAX_CONTEXT_TOKENS
+from core.event_store import Event, ScoredEvent
+from core.config import TARGET_CONTEXT_TOKENS, MAX_CONTEXT_TOKENS
 
 logger = logging.getLogger(__name__)
 

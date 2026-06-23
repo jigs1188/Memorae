@@ -10,7 +10,7 @@ import time
 import logging
 from typing import Optional
 import google.generativeai as genai
-from config import GEMINI_API_KEY
+from core.config import GEMINI_API_KEY
 logger = logging.getLogger(__name__)
 # Configure the SDK once
 genai.configure(api_key=GEMINI_API_KEY)
