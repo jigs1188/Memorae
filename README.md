@@ -11,7 +11,7 @@ A production-grade personal memory query system that ingests raw event streams (
 1. **Clone and Install**
    ```bash
    git clone https://github.com/jigs1188/Memorae.git
-   cd memorae
+   cd Memorae
    pip install -r requirements.txt
    ```
 
@@ -47,14 +47,11 @@ python main.py --query "What did Nina ask me to prepare?"
 ### 3. Run via FastAPI (HTTP)
 
 ```bash
-# Enter the project directory:
-cd memorae
-
 # Install all deps first:
 pip install -r requirements.txt
 
 # Start the server:
-python -m uvicorn api:app --host 0.0.0.0 --port 8000
+python -m uvicorn api.api:app --host 0.0.0.0 --port 8000
 ```
 
 Interactive docs at: **http://localhost:8000/docs**
@@ -104,10 +101,10 @@ python main.py --no-llm
 
 ```bash
 # Offline only (no API calls, fast)
-python evaluation.py --offline-only
+python -m evaluation.evaluation --offline-only
 
 # Full eval including regression tests (requires API)
-python evaluation.py
+python -m evaluation.evaluation
 ```
 
 ---
@@ -116,25 +113,24 @@ python evaluation.py
 
 ```
 memorae_mock_events.json      ← dataset (not modified)
-memorae/
-  core/
-    config.py          ← constants, config, and .env loader
-    event_store.py     ← event indexing, scoring, retrieval
-    context_builder.py ← token-aware context construction
-    query_engine.py    ← 4-step pipeline per query
-  llm/
-    llm_client.py      ← unified router
-    gemini_client.py   ← Gemini API client
-    openai_client.py   ← OpenAI API client
-  api/
-    api.py             ← FastAPI web server
-  ui/
-    dashboard_export.py← HTML dashboard generator
-  evaluation/
-    evaluation.py      ← offline + regression + online evals
-    smoke_test.py      ← quick system checks
-  main.py              ← CLI entry point
-  requirements.txt
+core/
+  config.py          ← constants, config, and .env loader
+  event_store.py     ← event indexing, scoring, retrieval
+  context_builder.py ← token-aware context construction
+  query_engine.py    ← 4-step pipeline per query
+llm/
+  llm_client.py      ← unified router
+  gemini_client.py   ← Gemini API client
+  openai_client.py   ← OpenAI API client
+api/
+  api.py             ← FastAPI web server
+ui/
+  dashboard_export.py← HTML dashboard generator
+evaluation/
+  evaluation.py      ← offline + regression + online evals
+  smoke_test.py      ← quick system checks
+main.py              ← CLI entry point
+requirements.txt
 README.md
 .env.example           ← template for API keys
 ```
