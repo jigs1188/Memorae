@@ -272,7 +272,7 @@ def generate_dashboard(results_dict: list[dict], output_path: str | Path) -> Non
                             return `<li>${{v}}</li>`;
                         }}).join('');
                         formattedValue = `<ul style="margin-top: 0.5rem; margin-bottom: 0; padding-left: 1.5rem;">${{formattedValue}}</ul>`;
-                    } else if (typeof value === 'object' && value !== null) {{
+                    }} else if (typeof value === 'object' && value !== null) {{
                         formattedValue = JSON.stringify(value);
                     }}
                     items.push(`<div style="margin-bottom: 0.75rem;"><strong style="color: #4c1d95;">${{key.replace(/_/g, ' ').toUpperCase()}}:</strong> ${{formattedValue}}</div>`);

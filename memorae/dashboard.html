@@ -254,9 +254,17 @@
                 for (const [key, value] of Object.entries(res.reasoning)) {
                     let formattedValue = value;
                     if (Array.isArray(value)) {
-                        formattedValue = value.map(v => `<li>${v}</li>`).join('');
-                        formattedValue = `<ul style="margin-top: 0.5rem; margin-bottom: 0;">${formattedValue}</ul>`;
-                    } else if (typeof value === 'object') {
+                        formattedValue = value.map(v => {
+                            if (typeof v === 'object' && v !== null) {
+                                if (v.content_preview) {
+                                    return `<li style="margin-bottom: 0.5rem"><strong>[${v.source}]</strong> ${v.content_preview} <br><em style="font-size: 0.85rem; color: #6b7280;">Score: ${v.score || v.relevance_score} - ${v.reason}</em></li>`;
+                                }
+                                return `<li>${JSON.stringify(v)}</li>`;
+                            }
+                            return `<li>${v}</li>`;
+                        }).join('');
+                        formattedValue = `<ul style="margin-top: 0.5rem; margin-bottom: 0; padding-left: 1.5rem;">${formattedValue}</ul>`;
+                    } else if (typeof value === 'object' && value !== null) {
                         formattedValue = JSON.stringify(value);
                     }
                     items.push(`<div style="margin-bottom: 0.75rem;"><strong style="color: #4c1d95;">${key.replace(/_/g, ' ').toUpperCase()}:</strong> ${formattedValue}</div>`);
