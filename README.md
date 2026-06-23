@@ -47,11 +47,14 @@ python main.py --query "What did Nina ask me to prepare?"
 ### 3. Run via FastAPI (HTTP)
 
 ```bash
+# Enter the project directory:
+cd memorae
+
 # Install all deps first:
-pip install -r memorae/requirements.txt
+pip install -r requirements.txt
 
 # Start the server:
-uvicorn api:app --host 0.0.0.0 --port 8000
+python -m uvicorn api:app --host 0.0.0.0 --port 8000
 ```
 
 Interactive docs at: **http://localhost:8000/docs**
