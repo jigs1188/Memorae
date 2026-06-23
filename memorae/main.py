@@ -67,8 +67,8 @@ def display_result(result: QueryResult, index: int) -> None:
     )
 
     # Contradiction notes
-    if result.contradiction_notes:
-        console.print("\n[bold yellow]⚠ Contradiction / Update Resolution:[/bold yellow]")
+    if getattr(result, "contradiction_notes", None):
+        console.print("\n[bold yellow]! Contradiction / Update Resolution:[/bold yellow]")
         for note in result.contradiction_notes:
             console.print(f"  • {note}")
 

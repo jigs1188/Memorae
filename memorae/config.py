@@ -17,7 +17,7 @@ from pathlib import Path
 try:
     from dotenv import load_dotenv
     _env_path = Path(__file__).parent.parent / ".env"
-    load_dotenv(dotenv_path=_env_path, override=False)
+    load_dotenv(dotenv_path=_env_path, override=True)
 except ImportError:
     pass  # dotenv optional; fall back to OS env vars
 
@@ -28,8 +28,7 @@ SCENARIO_NOW = "2026-04-13T03:00:00Z"
 # Explicit > auto-detect
 _provider_env = os.getenv("LLM_PROVIDER", "").strip().lower()
 OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY", "").strip()
-GEMINI_API_KEY  = os.getenv("GEMINI_API_KEY",
-                            "AIzaSyArhgfMBoXva74Ej5-_lkZULkeh5b4D-Xc").strip()
+GEMINI_API_KEY  = os.getenv("GEMINI_API_KEY", "").strip()
 
 if _provider_env in ("openai", "gemini"):
     LLM_PROVIDER = _provider_env

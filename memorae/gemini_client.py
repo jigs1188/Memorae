@@ -10,12 +10,48 @@ import time
 import logging
 from typing import Optional
 import google.generativeai as genai
-from config import GEMINI_API_KEY, GEMINI_MODEL_FALLBACK_CHAIN
+from config import GEMINI_API_KEY
 logger = logging.getLogger(__name__)
 # Configure the SDK once
 genai.configure(api_key=GEMINI_API_KEY)
 def _make_model(model_name: str) -> genai.GenerativeModel:
     return genai.GenerativeModel(model_name)
+
+_LIVE_MODELS = None
+def _get_dynamic_gemini_models() -> list[str]:
+    global _LIVE_MODELS
+    if _LIVE_MODELS is not None:
+        return _LIVE_MODELS
+        
+    models = []
+    try:
+        for m in genai.list_models():
+            if "generateContent" in m.supported_generation_methods:
+                name = m.name.replace("models/", "")
+                models.append(name)
+    except Exception as exc:
+        logger.warning(f"Could not fetch live models: {exc}")
+        _LIVE_MODELS = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"]
+        return _LIVE_MODELS
+
+    def rank(name: str) -> int:
+        score = 0
+        if "2.5" in name: score += 300
+        elif "2.0" in name: score += 200
+        elif "1.5" in name: score += 100
+        if "pro" in name: score += 50
+        elif "flash" in name: score += 20
+        if "lite" in name: score -= 10
+        if "experimental" in name: score -= 50
+        if "vision" in name: score -= 100
+        return score
+        
+    models.sort(key=rank, reverse=True)
+    if not models:
+        models = ["gemini-2.5-flash"]
+    _LIVE_MODELS = models
+    return _LIVE_MODELS
+
 def _extract_retry_delay(err_str: str, default: float = 5.0) -> float:
     """Try to parse the 'retry_delay { seconds: N }' from API error message."""
     m = re.search(r"retry_delay\s*\{\s*seconds:\s*(\d+)", err_str)
@@ -50,7 +86,7 @@ def generate(
         "max_output_tokens": max_output_tokens,
     }
     last_error: Optional[Exception] = None
-    for model_name in GEMINI_MODEL_FALLBACK_CHAIN:
+    for model_name in _get_dynamic_gemini_models():
         model = _make_model(model_name)
         for attempt in range(retries_per_model + 1):
             try:

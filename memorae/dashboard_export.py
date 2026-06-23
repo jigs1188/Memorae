@@ -13,6 +13,7 @@ def generate_dashboard(results_dict: list[dict], output_path: str | Path) -> Non
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Memorae Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         :root {{
             --bg-dark: #fcfaff;
@@ -128,8 +129,13 @@ def generate_dashboard(results_dict: list[dict], output_path: str | Path) -> Non
             font-size: 1.1rem;
             line-height: 1.7;
             color: #374151;
-            white-space: pre-wrap;
+            /* Markdown styles */
         }}
+        .answer-text h2, .answer-text h3 {{ margin-top: 1.5em; margin-bottom: 0.5em; color: #4c1d95; }}
+        .answer-text p {{ margin-bottom: 1em; }}
+        .answer-text ul, .answer-text ol {{ margin-left: 1.5em; margin-bottom: 1em; }}
+        .answer-text li {{ margin-bottom: 0.25em; }}
+        .answer-text strong {{ color: #3b0764; }}
 
         /* Metadata Tags */
         .meta-container {{
@@ -249,20 +255,37 @@ def generate_dashboard(results_dict: list[dict], output_path: str | Path) -> Non
                 </div>
             `).join('');
 
+            // Format reasoning
+            let reasoningHtml = res.reasoning;
+            if (typeof res.reasoning === 'object') {{
+                let items = [];
+                for (const [key, value] of Object.entries(res.reasoning)) {{
+                    let formattedValue = value;
+                    if (Array.isArray(value)) {{
+                        formattedValue = value.map(v => `<li>${{v}}</li>`).join('');
+                        formattedValue = `<ul style="margin-top: 0.5rem; margin-bottom: 0;">${{formattedValue}}</ul>`;
+                    }} else if (typeof value === 'object') {{
+                        formattedValue = JSON.stringify(value);
+                    }}
+                    items.push(`<div style="margin-bottom: 0.75rem;"><strong style="color: #4c1d95;">${{key.replace(/_/g, ' ').toUpperCase()}}:</strong> ${{formattedValue}}</div>`);
+                }}
+                reasoningHtml = `<div style="font-size: 0.95rem; color: #4b5563;">${{items.join('')}}</div>`;
+            }}
+
             content.innerHTML = `
                 <div class="glass-card">
                     <div class="meta-container">
-                        <div class="tag model">⚙️ ${{res.model_used}}</div>
-                        <div class="tag tokens">📊 ~${{res.context_stats.token_estimate}} tokens</div>
-                        <div class="tag">🎯 ${{res.context_stats.events_used}} events</div>
+                        <div class="tag model">AI Model: ${{res.model_used || 'Local/Offline'}}</div>
+                        <div class="tag tokens">~${{res.context_stats.token_estimate}} tokens analyzed</div>
+                        <div class="tag">${{res.context_stats.events_used}} events extracted</div>
                     </div>
                     <h2>${{res.query}}</h2>
-                    <div class="answer-text">${{res.answer}}</div>
+                    <div class="answer-text">${{marked.parse(res.answer)}}</div>
                 </div>
 
                 <div class="glass-card" style="animation-delay: 0.1s">
                     <h3>Engine Reasoning</h3>
-                    <div class="reasoning-text">${{res.reasoning}}</div>
+                    <div class="reasoning-text">${{reasoningHtml}}</div>
                 </div>
 
                 <div class="glass-card" style="animation-delay: 0.2s">
