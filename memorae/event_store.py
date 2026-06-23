@@ -3,12 +3,15 @@ event_store.py — In-memory event store with indexing, scoring, and retrieval.
 
 This module answers the question: "Given a query intent, which events matter?"
 
+Retrieval is HYBRID:
+  - BM25 (sparse)  — term frequency/IDF-weighted keyword matching via rank_bm25
+  - Keyword overlap (exact) — must-include pattern matching, query term scanning
+  - Combined relevance score: 0.55 * BM25 + 0.45 * keyword_overlap
+
 Design for scale (10k messages / 1k notes / 500 reminders):
-  - Events are scored once at load time for recency and source priority.
-  - Keyword/signal matching is done with lightweight string operations (O(n)).
-  - For production scale, this would be backed by a vector DB (e.g., Pinecone,
-    Weaviate) for semantic retrieval, plus a metadata index (SQLite / Redis)
-    for fast deadline/date range filtering.
+  - BM25 index is built once at load time (O(n log n)).
+  - Per-query: BM25 scoring is O(n * avg_doc_len), fully in-memory.
+  - For production scale: swap BM25 for Elasticsearch + FAISS for ANN search.
   - The scorer is composable: add new dimensions without touching retrieval logic.
 """
 
@@ -23,6 +26,14 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from dateutil import parser as dateutil_parser
+
+# BM25 — graceful fallback if rank_bm25 not installed
+try:
+    from rank_bm25 import BM25Okapi
+    HAS_BM25 = True
+except ImportError:
+    HAS_BM25 = False
+    BM25Okapi = None  # type: ignore
 
 from config import (
     NOISE_PATTERNS,
@@ -108,6 +119,17 @@ class EventStore:
         self.events = events
         self.now = now
         self._index_events()
+        self._bm25: Optional[Any] = None
+        self._build_bm25_index()
+
+    def _build_bm25_index(self) -> None:
+        """Build BM25 index over all non-noise event contents."""
+        if not HAS_BM25:
+            logger.debug("rank_bm25 not installed — using keyword-only retrieval")
+            return
+        corpus = [ev.content.lower().split() for ev in self.events]
+        self._bm25 = BM25Okapi(corpus)
+        logger.debug(f"BM25 index built over {len(corpus)} documents")
 
     # ── Build-time indexing ────────────────────────────────────────────────────
 
@@ -138,21 +160,34 @@ class EventStore:
     def _source_score(self, ev: Event) -> float:
         return ev.source_weight
 
+    def _bm25_score_for_event(self, ev: Event, bm25_scores: Optional[list[float]]) -> float:
+        """Return normalized BM25 score for this event (0-1 range)."""
+        if bm25_scores is None:
+            return 0.0
+        idx = self.events.index(ev)
+        raw = bm25_scores[idx]
+        return raw  # already normalized by caller
+
     def _composite_score(
-        self, ev: Event, keywords: list[str]
+        self,
+        ev: Event,
+        keywords: list[str],
+        bm25_score: float = 0.0,
     ) -> tuple[float, dict[str, float]]:
         r = self._recency_score(ev)
         u = self._urgency_score(ev)
-        rel = self._relevance_score(ev, keywords)
+        kw = self._relevance_score(ev, keywords)
+        # Hybrid relevance: blend BM25 with exact keyword overlap
+        rel = 0.55 * bm25_score + 0.45 * kw if self._bm25 else kw
         s = self._source_score(ev)
 
         total = (
-            WEIGHT_RECENCY  * r
+            WEIGHT_RECENCY   * r
             + WEIGHT_URGENCY  * u
             + WEIGHT_RELEVANCE * rel
             + WEIGHT_SOURCE    * s
         )
-        return total, {"recency": r, "urgency": u, "relevance": rel, "source": s}
+        return total, {"recency": r, "urgency": u, "relevance": rel, "bm25": round(bm25_score, 3), "keyword_overlap": round(kw, 3), "source": s}
 
     # ── Public retrieval API ───────────────────────────────────────────────────
 
@@ -179,7 +214,20 @@ class EventStore:
         """
         scored: list[ScoredEvent] = []
 
-        for ev in self.events:
+        # ── BM25 pre-scoring (whole corpus, one shot) ──────────────────────────
+        bm25_scores_raw: Optional[list[float]] = None
+        bm25_scores_norm: dict[int, float] = {}
+        if self._bm25 is not None:
+            query_tokens = " ".join(keywords).lower().split()
+            raw = self._bm25.get_scores(query_tokens).tolist()
+            max_raw = max(raw) if raw else 1.0
+            if max_raw > 0:
+                bm25_scores_norm = {i: min(s / max_raw, 1.0) for i, s in enumerate(raw)}
+            else:
+                bm25_scores_norm = {i: 0.0 for i in range(len(raw))}
+            bm25_scores_raw = raw
+
+        for idx, ev in enumerate(self.events):
             # Pre-filter: skip noise unless query explicitly targets it or must_include
             if exclude_noise and ev.is_noise:
                 if must_include_patterns and _contains_any(
@@ -189,7 +237,8 @@ class EventStore:
                 elif _keyword_overlap_score(ev.content, keywords) < 0.3:
                     continue
 
-            score, breakdown = self._composite_score(ev, keywords)
+            bm25_ev = bm25_scores_norm.get(idx, 0.0)
+            score, breakdown = self._composite_score(ev, keywords, bm25_score=bm25_ev)
 
             # Boost for must_include matches
             if must_include_patterns and _contains_any(

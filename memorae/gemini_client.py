@@ -35,18 +35,23 @@ def _get_dynamic_gemini_models() -> list[str]:
         return _LIVE_MODELS
 
     def rank(name: str) -> int:
+        if any(bad in name for bad in ("tts", "image", "vision", "lite", "preview", "experimental", "robotics", "computer-use", "banana", "deep-research", "antigravity")):
+            return -1000
         score = 0
-        if "2.5" in name: score += 300
-        elif "2.0" in name: score += 200
-        elif "1.5" in name: score += 100
+        if "3.5" in name: score += 500
+        elif "3.1" in name: score += 400
+        elif "3" in name: score += 300
+        elif "2.5" in name: score += 200
+        elif "2.0" in name: score += 100
+        elif "1.5" in name: score += 50
+        
         if "pro" in name: score += 50
         elif "flash" in name: score += 20
-        if "lite" in name: score -= 10
-        if "experimental" in name: score -= 50
-        if "vision" in name: score -= 100
         return score
         
     models.sort(key=rank, reverse=True)
+    models = [m for m in models if rank(m) >= 0]
+    
     if not models:
         models = ["gemini-2.5-flash"]
     _LIVE_MODELS = models

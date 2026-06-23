@@ -1,17 +1,20 @@
 # Python
 __pycache__/
-*.py[cod]
-
-# Logs and outputs
-*.log
-results.json
-eval_report.json
+*.pyc
 
 # Environment
 .env
 
-# AI / Assignment artifacts (excluded per instructions)
+# Generated Output
+results.json
+dashboard.html
+eval_report.json
+memorae.log
+
+# Temporary / Extraneous files
+smoke_test.py
+temp_script.js
+
+# Assessment / Unwanted Docs
 ASSESSMENT.pdf
 design_document.md
-walkthrough.md
-implementation_plan.md

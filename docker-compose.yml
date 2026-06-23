@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  memorae-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: memorae-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # Mount the events data file (read-only)
+      - ./memorae_mock_events.json:/app/memorae_mock_events.json:ro
+      # Mount results so they persist across container restarts
+      - ./memorae/results.json:/app/memorae/results.json
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # Optional: Run all 5 preset queries once on startup (one-shot job)
+  memorae-cli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: memorae-cli
+    env_file:
+      - .env
+    volumes:
+      - ./memorae_mock_events.json:/app/memorae_mock_events.json:ro
+      - ./memorae:/app/memorae
+    working_dir: /app/memorae
+    environment:
+      - PYTHONPATH=/app/memorae
+    command: ["python", "main.py"]
+    profiles:
+      - cli   # only runs when: docker-compose --profile cli up

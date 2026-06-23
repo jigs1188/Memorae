@@ -1,6 +1,8 @@
-# Memorae — Personal Memory Query Engine
+# Memorae — Personal Memory Intelligence Engine
 
-A working implementation of a personal-memory query system that ingests raw event streams and answers natural-language queries with time-aware, context-grounded answers.
+A production-grade personal memory query system that ingests raw event streams (WhatsApp, Slack, Gmail, Calendar, Notion) and answers natural-language queries using **hybrid BM25 + keyword retrieval**, contradiction resolution, and LLM generation (Gemini or OpenAI).
+
+[![Python](https://img.shields.io/badge/Python-3.11-blue)](https://python.org) [![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green)](https://fastapi.tiangolo.com) [![Docker](https://img.shields.io/badge/Docker-ready-blue)](https://docker.com)
 
 ---
 
@@ -42,13 +44,60 @@ Results are saved to `results.json` in the current directory.
 python main.py --query "What did Nina ask me to prepare?"
 ```
 
-### 4. Dry-run (no LLM — show selected events only)
+### 3. Run via FastAPI (HTTP)
+
+```bash
+# Install all deps first:
+pip install -r memorae/requirements.txt
+
+# Start the server:
+uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+Interactive docs at: **http://localhost:8000/docs**
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /query` | Run any natural-language query |
+| `GET /queries` | List all 5 preset queries |
+| `POST /queries/all` | Run all 5 preset queries |
+| `GET /health` | Health check + provider info |
+| `GET /results` | Return cached `results.json` |
+| `GET /events/stats` | Event store statistics |
+
+**Example API call:**
+```bash
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What should I focus on today?"}'
+```
+
+### 4. Run via Docker (single command)
+
+```bash
+docker-compose up
+```
+
+This builds and starts the FastAPI server on port 8000. The API is ready at **http://localhost:8000**.
+
+To also run the CLI analysis (generates results.json + dashboard.html):
+```bash
+docker-compose --profile cli up
+```
+
+### 5. Run a custom query
+
+```bash
+python main.py --query "What did Nina ask me to prepare?"
+```
+
+### 6. Dry-run (no LLM — show selected events only)
 
 ```bash
 python main.py --no-llm
 ```
 
-### 5. Run the evaluation framework
+### 7. Run the evaluation framework
 
 ```bash
 # Offline only (no API calls, fast)
