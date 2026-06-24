@@ -6,6 +6,21 @@ A production-grade personal memory query system that ingests raw event streams (
 
 ---
 
+## 🎯 Assessor's Guide (Where to find the logic)
+
+To review the specific steps requested in the assignment, please check the following core files:
+
+1. **Step 1 & 2: Source Selection & Context Construction** 
+   - `core/event_store.py`: Contains the hybrid BM25 + keyword scoring, noise filtering, and top-K logic.
+   - `core/context_builder.py`: Contains token-budget packing and contradiction resolution.
+2. **Step 3 & 4: Answer Generation & Reasoning**
+   - `core/query_engine.py`: Orchestrates the 4-step pipeline and constructs the reasoning/uncertainty output.
+   - `llm/gemini_client.py`: The robust fallback chain and retry logic.
+3. **Evaluation Framework**
+   - `evaluation/evaluation.py`: Contains the Offline (deterministic), Regression (LLM golden-set), and Online (latency/efficiency) evaluation suites.
+
+---
+
 ## Setup
 
 1. **Clone and Install**

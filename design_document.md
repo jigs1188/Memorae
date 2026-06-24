@@ -29,8 +29,8 @@ Stage 1: Noise pre-filter
 Stage 2: Composite scoring (remaining ~155 events)
   • Recency score:   exp(-age_hours / 72)  [half-life = 3 days]
   • Urgency score:   keyword match on 20+ deadline/action signals
-  • Relevance score: keyword overlap with query-specific terms
-  • Source score:    reminder > calendar > gmail > notion > slack > sms > chrome
+  • Relevance score: Hybrid BM25 + keyword overlap (0.55 × BM25 + 0.45 × overlap)
+  • Source score:    reminder > calendar > gmail > notion > slack > whatsapp > sms > chrome
   • Combined:        0.35×urgency + 0.30×relevance + 0.20×recency + 0.15×source
       │
       ▼
@@ -50,7 +50,7 @@ Stage 5: Contradiction resolution
       ▼
 Stage 6: Token-budget packing
   • Greedy fill: highest-score events first until ~8,000 token soft target
-  • Hard limit: 100,000 tokens
+  • Hard limit: 100,000 tokens (events packed beyond the soft budget require a score ≥ 0.55)
   • Approx 4 chars/token (conservative estimate)
       │
       ▼
@@ -383,12 +383,12 @@ The system uses external LLM APIs for the generation step (Step 3). It abstracts
 
 - **Google Gemini (Default)**
   - **Setup**: Requires a `GEMINI_API_KEY` in the `.env` file. A free-tier key is pre-configured in the codebase for ease of evaluation.
-  - **Models**: `gemini-2.5-flash` with a fallback chain extending to `gemini-2.5-pro` if rate limits are hit.
+  - **Models**: `gemini-2.5-flash` with a robust fallback chain (`gemini-2.5-flash-lite` → `gemini-flash-latest` → `gemini-2.0-flash` → `gemini-2.5-pro`) if rate limits are hit.
   - **Expected Cost**: $0 (using the free tier, bounded by 5 RPM).
 
 - **OpenAI (Optional Alternative)**
   - **Setup**: Requires `LLM_PROVIDER=openai` and `OPENAI_API_KEY` in the `.env` file.
-  - **Models**: `gpt-4o` as the default, falling back to `gpt-4o-mini` and `gpt-4-turbo`.
+  - **Models**: `gpt-4o` as the default, falling back to `gpt-4o-mini`, `gpt-4-turbo`, and `gpt-3.5-turbo`.
   - **Expected Cost**: ~$0.02 to run all 5 preset queries (assuming ~15k input tokens and ~2k output tokens total).
 
 The retrieval pipeline itself (Step 1 & 2) runs entirely locally and incurs no API costs.
