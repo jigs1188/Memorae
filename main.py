@@ -24,10 +24,12 @@ from rich.markdown import Markdown
 from rich import box
 
 from core.config import SCENARIO_NOW
-from core.event_store import load_events, EventStore
-from core.query_engine import QueryEngine, QuerySpec, QUERY_SPECS, QueryResult
+from core.event_store import load_events
+from core.memory_extractor import MemoryExtractor
+from core.memory_store import MemoryStore
+from core.project_builder import ProjectBuilder
+from core.query_engine import QueryEngine, QueryResult
 from llm.llm_client import get_provider_info
-from ui.dashboard_export import generate_dashboard
 
 # ── Logging setup ──────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -136,58 +138,49 @@ def main() -> None:
         border_style="blue",
     ))
 
-    # ── Load events
+    # ── Load events & memories
     console.print(f"\n[bold]Loading events from:[/bold] {args.data}")
     events = load_events(args.data)
-    store = EventStore(events, now)
+    extractor = MemoryExtractor()
+    memories = extractor.extract_memories(events)
+    store = MemoryStore(memories, now)
     stats = store.stats()
+    
+    project_builder = ProjectBuilder(now)
+    projects = project_builder.build_projects(memories)
+    
     console.print(
-        f"  Events loaded: [cyan]{stats['total']}[/cyan] | "
-        f"Signal: [green]{stats['signal']}[/green] | "
-        f"Noise: [red]{stats['noise']}[/red] | "
-        f"With urgency: [yellow]{stats['with_urgency']}[/yellow]"
+        f"  Memories extracted: [cyan]{stats['total']}[/cyan] | "
+        f"With urgency: [yellow]{stats['with_urgency']}[/yellow] | "
+        f"Projects found: [green]{len(projects)}[/green]"
     )
 
-    engine = QueryEngine(store, now)
+    engine = QueryEngine(store, now, projects=projects)
 
-    # ── Determine which queries to run
     if args.query:
-        # Custom query — use flexible keyword extraction
-        custom_keywords = args.query.lower().split()
-        specs = [QuerySpec(
-            query=args.query,
-            keywords=custom_keywords,
-            must_include=[],
-            system_instruction=(
-                f"You are a personal AI assistant. Today is 2026-04-13 03:00 UTC. "
-                f"Answer this query based on the events: \"{args.query}\". "
-                f"Be specific and grounded in the provided context."
-            ),
-        )]
+        queries = [args.query]
     else:
-        specs = QUERY_SPECS
+        # Fallback preset queries if no query is specified
+        queries = [
+            "What should I focus on today?",
+            "What commitments am I at risk of missing?",
+            "What have I been procrastinating on?",
+            "Summarize everything related to the UIE proposal.",
+            "What personal/family tasks need my attention?",
+        ]
 
     # ── Run queries
     all_results: list[QueryResult] = []
-    for i, spec in enumerate(specs, 1):
-        console.print(f"\n[bold cyan]Running query {i}/{len(specs)}...[/bold cyan]")
+    for i, q in enumerate(queries, 1):
+        console.print(f"\n[bold cyan]Running query {i}/{len(queries)}...[/bold cyan]")
 
         if args.no_llm:
             # Dry-run: just show what would be selected
-            scored = store.retrieve(
-                keywords=spec.keywords,
-                must_include_patterns=spec.must_include or None,
-                top_k=spec.top_k,
-            )
-            console.print(f"  Would select {len(scored)} events for: '{spec.query}'")
-            for se in scored[:5]:
-                console.print(
-                    f"    [{se.event.source}] score={se.score:.3f} "
-                    f"| {se.event.content[:70]}"
-                )
+            # Currently disabled for generic queries without LLM, would need refactoring for dry-run
+            console.print(f"  Dry-run not fully supported with generic queries yet.")
             continue
 
-        result = engine.run(spec)
+        result = engine.run(q)
         all_results.append(result)
         display_result(result, i)
 
@@ -202,11 +195,6 @@ def main() -> None:
             json.dump(results_dicts, f, indent=2, ensure_ascii=False)
             
         console.print(f"\n[bold green]✓ Results JSON saved to {output_path.resolve()}[/bold green]")
-        
-        # Generate the beautiful HTML dashboard
-        dash_path = output_path.parent / "dashboard.html"
-        generate_dashboard(results_dicts, dash_path)
-        console.print(f"[bold green]✓ Dashboard HTML saved to {dash_path.resolve()}[/bold green]")
 
     console.print("\n[bold green]Done.[/bold green]")
 

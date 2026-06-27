@@ -18,8 +18,8 @@ In production with 10k messages / 1k notes / 500 reminders:
     Cluster near-duplicate messages (e.g. repeated coffee-machine noise)
     and include only the canonical form.
   Stage 5 – Contradiction resolution:
-    For the same entity (e.g., UIE deadline), keep only the latest update
-    and annotate earlier versions as "superseded".
+    For any entity where dates or numeric values change across timestamps,
+    emit an UPDATE annotation pointing to the latest event.
 
 Token estimation
 ────────────────
@@ -29,7 +29,9 @@ This avoids importing tiktoken just for a small dataset.
 
 from __future__ import annotations
 
+import re
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -55,65 +57,129 @@ class BuiltContext:
     contradiction_notes: list[str]
 
 
-def _format_event(ev: Event, tag: str = "") -> str:
+def _format_event(se: ScoredEvent, tag: str = "") -> str:
+    ev = se.event
     ts = ev.timestamp.strftime("%Y-%m-%d %H:%M UTC")
     label = f"[{tag}] " if tag else ""
-    return f"[{ts} | {ev.source}] {label}{ev.content}"
+    
+    # Inject metadata if available
+    meta_tags = []
+    if se.metadata:
+        if se.metadata.get("project"):
+            meta_tags.append(f"Project: {se.metadata['project']}")
+        if se.metadata.get("people"):
+            meta_tags.append(f"People: {', '.join(se.metadata['people'])}")
+        if se.metadata.get("relationships"):
+            rel_strs = []
+            for k, v in se.metadata["relationships"].items():
+                if isinstance(v, list):
+                    rel_strs.append(f"{k}: {', '.join(v)}")
+                else:
+                    rel_strs.append(f"{k}: {v}")
+            meta_tags.append(f"Relations: {' | '.join(rel_strs)}")
+            
+    meta_str = f" [{'] ['.join(meta_tags)}]" if meta_tags else ""
+    
+    return f"[{ts} | {ev.source}]{meta_str} {label}{ev.content}"
+
+
+# ── Patterns for generic contradiction detection ───────────────────────────────
+
+_DATE_RE = re.compile(
+    r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b"
+    r"|\b\d{4}-\d{2}-\d{2}\b"
+    r"|\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+    re.IGNORECASE,
+)
+
+_NUM_RE = re.compile(
+    r"\$[\d,]+(?:\.\d+)?k?\b"    # $42k, $48.5k, $1,200
+    r"|\b\d+(?:\.\d+)?k\b"       # 42k, 48.5k
+    r"|\b\d{4,}\b"                # plain numbers ≥ 4 digits
+    r"|\b\d+(?:\.\d+)?\s*%",     # percentages
+    re.IGNORECASE,
+)
+
+_TOPIC_STOP = {
+    "the", "a", "an", "is", "are", "was", "be", "been", "has", "have",
+    "had", "will", "would", "can", "could", "to", "of", "in", "for",
+    "on", "at", "by", "and", "or", "not", "no", "this", "that", "it",
+    "we", "i", "you", "he", "she", "they", "with", "as", "if", "but",
+    "from", "up", "out", "so", "do", "did", "get", "got",
+}
+
+
+def _topic_key(text: str) -> str:
+    """First 2 meaningful content words — used as a rough entity fingerprint.
+
+    Using 2 words (not 3) gives better clustering: 'UIE proposal' matches
+    both 'UIE proposal due Apr 10' and 'UIE proposal deadline moved to Apr 13'.
+    Min token length of 3 retains short-but-meaningful terms like 'UIE'.
+    """
+    tokens = [
+        t.lower().strip(".,!?;:'\"()")
+        for t in text.split()
+        if len(t) >= 3 and t.lower().strip(".,!?;:'\"()") not in _TOPIC_STOP
+    ]
+    return " ".join(tokens[:2])
 
 
 def _detect_contradictions(events: list[ScoredEvent]) -> tuple[list[ScoredEvent], list[str]]:
     """
-    Detect and resolve contradictions / updates for known entities.
+    Generic contradiction / update detector — no hardcoded entity names.
 
-    Strategy: for each tracked entity key (e.g., "UIE proposal deadline"),
-    if multiple events contain conflicting information, keep the LATEST one
-    and mark earlier ones as superseded.
+    Algorithm:
+      1. For each scored event, extract dates and numeric values.
+      2. Group events into topic clusters using the first 3 significant words.
+      3. Within each cluster, compare the earliest and latest event's
+         date/numeric token sets.  If they differ, emit an UPDATE note
+         that quotes the latest event directly.
 
-    Returns cleaned event list and contradiction notes.
+    This works generically for any project, person, or entity where values or
+    dates evolve over time.
+
+    Returns (unchanged_event_list, list_of_note_strings).
     """
     notes: list[str] = []
 
-    # UIE deadline supersession
-    uie_deadline_events = [
-        se for se in events
-        if "uie" in se.event.content.lower() and any(
-            kw in se.event.content.lower()
-            for kw in ["due", "deadline", "apr 10", "apr 13", "moved"]
-        )
-    ]
-    if len(uie_deadline_events) > 1:
-        # Sort by timestamp; last one wins
-        uie_deadline_events.sort(key=lambda x: x.event.timestamp)
-        latest = uie_deadline_events[-1]
-        notes.append(
-            f"UIE deadline UPDATED: earlier deadline 'Apr 10' was superseded by "
-            f"message on {latest.event.timestamp.strftime('%Y-%m-%d')} → "
-            f"'{latest.event.content[:80]}...'"
-        )
+    # Build per-topic groups: topic_key → list of (ScoredEvent, dates, nums)
+    clusters: dict[str, list] = defaultdict(list)
+    for se in events:
+        key = _topic_key(se.event.content)
+        if not key:
+            continue
+        dates = set(d.lower().strip() for d in _DATE_RE.findall(se.event.content))
+        nums  = set(n.lower().strip() for n in _NUM_RE.findall(se.event.content))
+        if dates or nums:
+            clusters[key].append((se, dates, nums))
 
-    # Procurement estimate update
-    proc_events = [
-        se for se in events
-        if any(kw in se.event.content.lower() for kw in ["42k", "48.5k", "procurement estimate"])
-    ]
-    if len(proc_events) > 1:
-        proc_events.sort(key=lambda x: x.event.timestamp)
-        latest = proc_events[-1]
-        notes.append(
-            f"Procurement estimate UPDATED: $42k → $48.5k per "
-            f"{latest.event.timestamp.strftime('%Y-%m-%d')} email from Cedric."
-        )
+    # Detect changes between earliest and latest event in each cluster
+    for topic, group in clusters.items():
+        if len(group) < 2:
+            continue
 
-    # Southridge clause 8 status
-    clause8_events = [
-        se for se in events
-        if "clause 8" in se.event.content.lower()
-    ]
-    if clause8_events:
-        clause8_events.sort(key=lambda x: x.event.timestamp)
-        latest_text = clause8_events[-1].event.content.lower()
-        if "approved" in latest_text:
-            notes.append("Southridge clause 8: APPROVED as of Apr 11. SOW is unblocked.")
+        group.sort(key=lambda x: x[0].event.timestamp)
+        earliest_se, e_dates, e_nums = group[0]
+        latest_se,   l_dates, l_nums = group[-1]
+
+        if e_dates == l_dates and e_nums == l_nums:
+            continue  # no change detected
+
+        changed_parts: list[str] = []
+        if e_dates != l_dates:
+            old = ", ".join(sorted(e_dates - l_dates)) or "—"
+            new = ", ".join(sorted(l_dates - e_dates)) or "—"
+            changed_parts.append(f"date '{old}' -> '{new}'")
+        if e_nums != l_nums:
+            old = ", ".join(sorted(e_nums - l_nums)) or "—"
+            new = ", ".join(sorted(l_nums - e_nums)) or "—"
+            changed_parts.append(f"value {old} -> {new}")
+
+        notes.append(
+            f"UPDATE on '{topic}' ({', '.join(changed_parts)}): "
+            f"latest [{latest_se.event.source} {latest_se.event.timestamp.strftime('%Y-%m-%d')}] "
+            f"— \"{latest_se.event.content[:120]}\""
+        )
 
     return events, notes
 
@@ -151,7 +217,7 @@ def build_context(
     dropped: list[ScoredEvent] = []
 
     for se in events_after_dedup:
-        line = _format_event(se.event) + "\n"
+        line = _format_event(se) + "\n"
         cost = _estimate_tokens(line)
         if used_budget + cost <= token_budget:
             selected.append(se)
@@ -166,7 +232,7 @@ def build_context(
         else:
             dropped.append(se)
 
-    body = header + "\n".join(_format_event(se.event) for se in selected)
+    body = header + "\n".join(_format_event(se) for se in selected)
 
     logger.info(
         f"Context built: {len(selected)} events, ~{used_budget} tokens "

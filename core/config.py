@@ -16,7 +16,7 @@ from pathlib import Path
 # ── Load .env from project root (parent of memorae/) ──────────────────────────
 try:
     from dotenv import load_dotenv
-    _env_path = Path(__file__).parent.parent.parent / ".env"
+    _env_path = Path(__file__).parent.parent / ".env"
     load_dotenv(dotenv_path=_env_path, override=True)
 except ImportError:
     pass  # dotenv optional; fall back to OS env vars
@@ -61,13 +61,11 @@ OPENAI_MODEL_FALLBACK_CHAIN = [
 # ── Gemini model fallback chain ────────────────────────────────────────────────
 # Verified against genai.list_models() — these are all available for generateContent
 GEMINI_MODEL_FALLBACK_CHAIN = [
-    "gemini-2.5-flash",          # Best available; 5 RPM free tier
-    "gemini-2.5-flash-lite",     # Lighter/faster
-    "gemini-flash-latest",       # Latest flash alias
-    "gemini-2.0-flash",          # Separate quota bucket
-    "gemini-2.0-flash-lite",     # Lite variant
-    "gemini-flash-lite-latest",  # Lite alias
-    "gemini-2.5-pro",            # Pro (tight free-tier daily quota)
+    "gemini-3.5-flash",          # Best working model on provided key
+    "gemini-3.1-flash-lite",     # Latest lite model
+    "gemini-flash-latest",       # Standard flash latest
+    "gemini-3.1-flash-lite-preview",
+    "gemini-2.5-flash-lite",
 ]
 
 # ── Context budget ─────────────────────────────────────────────────────────────
@@ -76,10 +74,12 @@ TARGET_CONTEXT_TOKENS = 8_000     # soft target tokens per query
 MAX_SELECTED_EVENTS   = 30        # max events before token-counting
 
 # ── Scoring weights (must sum to 1.0) ─────────────────────────────────────────
-WEIGHT_RECENCY   = 0.20
-WEIGHT_URGENCY   = 0.35
-WEIGHT_RELEVANCE = 0.30
-WEIGHT_SOURCE    = 0.15
+WEIGHT_SEMANTIC   = 0.30
+WEIGHT_BM25       = 0.20
+WEIGHT_IMPORTANCE = 0.20
+WEIGHT_URGENCY    = 0.15
+WEIGHT_RECENCY    = 0.10
+WEIGHT_RELATIONSHIP = 0.05
 
 # ── Source priority tiers (higher = more actionable) ──────────────────────────
 SOURCE_PRIORITY = {

@@ -24,14 +24,16 @@ from rich.table import Table
 from rich import box
 
 from core.config import SCENARIO_NOW
-from core.event_store import load_events, EventStore
-from core.query_engine import QueryEngine, QuerySpec, QUERY_SPECS
+from core.event_store import load_events
+from core.memory_extractor import MemoryExtractor
+from core.memory_store import MemoryStore
+from core.query_engine import QueryEngine
 
 logger = logging.getLogger(__name__)
 console = Console()
 
 NOW = datetime.fromisoformat(SCENARIO_NOW.replace("Z", "+00:00"))
-DATA_PATH = Path(__file__).parent.parent / "memorae_mock_events.json"
+DATA_PATH = Path(__file__).parent / "memorae_mock_events.json"
 REPORT_PATH = Path(__file__).parent / "eval_report.json"
 
 
@@ -69,9 +71,11 @@ class EvalReport:
 # Helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _load_store() -> EventStore:
+def _load_store() -> MemoryStore:
     events = load_events(str(DATA_PATH))
-    return EventStore(events, NOW)
+    extractor = MemoryExtractor()
+    memories = extractor.extract_memories(events)
+    return MemoryStore(memories, NOW)
 
 
 def _check_content_required(answer: str, required_phrases: list[str]) -> tuple[float, list[str]]:
@@ -99,15 +103,14 @@ class OfflineEvaluator:
     These test retrieval quality and scoring behavior.
     """
 
-    def __init__(self, store: EventStore):
+    def __init__(self, store: MemoryStore):
         self.store = store
 
     def test_noise_filtered(self) -> TestResult:
         """Coffee-machine messages and OTPs must NOT appear in any query result."""
         noise_patterns = ["coffee machine", "otp is", "ride receipt", "lunch is late"]
         scored = self.store.retrieve(
-            keywords=["focus", "today", "deadline", "uie"],
-            exclude_noise=True,
+            query="focus today deadline uie",
             top_k=30,
         )
         contents = [se.event.content.lower() for se in scored]
@@ -131,8 +134,7 @@ class OfflineEvaluator:
     def test_uie_deadline_update_detected(self) -> TestResult:
         """The system should surface the Apr 13 deadline, not the original Apr 10."""
         uie_scored = self.store.retrieve(
-            keywords=["uie", "deadline", "proposal", "nina"],
-            must_include_patterns=["apr 13", "apr 10", "moved"],
+            query="uie deadline proposal nina apr 13 apr 10 moved",
             top_k=10,
         )
         contents = " ".join(se.event.content.lower() for se in uie_scored)
@@ -161,16 +163,19 @@ class OfflineEvaluator:
 
     def test_procurement_estimate_update(self) -> TestResult:
         """$48.5k update must appear among procurement events retrieved by the system."""
-        # Use the actual event store pattern-search (not scored retrieval)
-        all_with = self.store.get_all_with_pattern(["48.5k", "42k", "procurement estimate"])
-        has_48k = any("48.5k" in e.content for e in all_with)
-        has_42k = any("42k" in e.content for e in all_with)
+        # Use list comprehension on memories
+        all_with = [m for m in self.store.memories if all(p in m.content.lower() for p in ["48.5k", "42k", "procurement estimate"])]
+        if not all_with: # fallback to or
+            all_with = [m for m in self.store.memories if any(p in m.content.lower() for p in ["48.5k", "42k", "procurement estimate"])]
+            
+        has_48k = any("48.5k" in m.content for m in all_with)
+        has_42k = any("42k" in m.content for m in all_with)
         # Also verify the 48.5k event is MORE RECENT than 42k event
-        events_48k = [e for e in all_with if "48.5k" in e.content]
-        events_42k = [e for e in all_with if "42k" in e.content]
+        events_48k = [m for m in all_with if "48.5k" in m.content]
+        events_42k = [m for m in all_with if "42k" in m.content]
         if events_48k and events_42k:
-            latest_48k = max(e.timestamp for e in events_48k)
-            latest_42k = max(e.timestamp for e in events_42k)
+            latest_48k = max(m.timestamp for m in events_48k)
+            latest_42k = max(m.timestamp for m in events_42k)
             updated_is_newer = latest_48k >= latest_42k
         else:
             updated_is_newer = has_48k and not has_42k
@@ -190,7 +195,7 @@ class OfflineEvaluator:
     def test_recency_bias(self) -> TestResult:
         """Events from Apr 12-13 should score higher than semantically equal Apr 1 events."""
         recent_scored = self.store.retrieve(
-            keywords=["uie", "proposal"],
+            query="uie proposal",
             top_k=5,
         )
         if not recent_scored:
@@ -215,7 +220,7 @@ class OfflineEvaluator:
     def test_calendar_beats_whatsapp_for_meetings(self) -> TestResult:
         """Calendar events for specific meetings should rank above WhatsApp chatter."""
         scored = self.store.retrieve(
-            keywords=["standup", "uie", "review", "nina"],
+            query="standup uie review nina",
             top_k=10,
         )
         calendar_scores = [se.score for se in scored if se.event.source == "calendar"]
@@ -242,7 +247,7 @@ class OfflineEvaluator:
     def test_southridge_clause8_resolved(self) -> TestResult:
         """The system should recognize clause 8 as approved (Apr 11 event present)."""
         # Use pattern search — confirmed by fact that approved event exists in stream
-        all_clause8 = self.store.get_all_with_pattern(["clause 8"])
+        all_clause8 = [m for m in self.store.memories if "clause 8" in m.content.lower()]
         if not all_clause8:
             return TestResult(
                 name="clause8_resolved",
@@ -268,14 +273,13 @@ class OfflineEvaluator:
 
     def test_high_urgency_events_surface(self) -> TestResult:
         """Events with explicit deadlines must have high urgency scores."""
-        from core.event_store import _contains_any, URGENCY_SIGNALS
-        urgent_events = [e for e in self.store.events if e.has_urgency]
+        urgent_events = [m for m in self.store.memories if m.importance >= 0.8 or self.store._calculate_urgency(m.content) > 0.0]
         passed = len(urgent_events) >= 20  # expect many deadline-bearing events
         return TestResult(
             name="urgency_detection_coverage",
             passed=passed,
             score=min(len(urgent_events) / 30, 1.0),
-            details=f"Found {len(urgent_events)} events with urgency signals (of {len(self.store.events)} total)",
+            details=f"Found {len(urgent_events)} events with urgency signals (of {len(self.store.memories)} total)",
             category="offline",
         )
 
@@ -305,15 +309,15 @@ class RegressionEvaluator:
     def __init__(self, engine: QueryEngine):
         self.engine = engine
 
-    def _run_query(self, spec: QuerySpec) -> str:
-        result = self.engine.run(spec)
+    def _run_query(self, query_str: str) -> str:
+        result = self.engine.run(query_str)
         return result.answer.lower()
 
     def test_focus_today_mentions_uie_review(self) -> TestResult:
         """'Focus today' answer must mention the 14:30 UIE review with Nina."""
-        spec = QUERY_SPECS[0]  # "What should I focus on today?"
+        query_str = "What should I focus on today?"
         t0 = time.time()
-        answer = self._run_query(spec)
+        answer = self._run_query(query_str)
         latency = time.time() - t0
 
         required = ["nina", "14:30", "uie"]
@@ -332,8 +336,8 @@ class RegressionEvaluator:
 
     def test_risk_mentions_overdue_rubric(self) -> TestResult:
         """'Risk' answer must flag the hiring rubric as overdue."""
-        spec = QUERY_SPECS[1]
-        answer = self._run_query(spec)
+        query_str = "What commitments am I at risk of missing?"
+        answer = self._run_query(query_str)
         required = ["rubric", "rhea"]
         score, missing = _check_content_required(answer, required)
         passed = score >= 0.5
@@ -347,8 +351,8 @@ class RegressionEvaluator:
 
     def test_procrastination_includes_reimbursement(self) -> TestResult:
         """'Procrastinating' answer must mention reimbursement receipts."""
-        spec = QUERY_SPECS[2]
-        answer = self._run_query(spec)
+        query_str = "What have I been procrastinating on?"
+        answer = self._run_query(query_str)
         required = ["reimburse", "export screenshots", "nudge"]
         score, missing = _check_content_required(answer, required)
         passed = score >= 0.33
@@ -362,8 +366,8 @@ class RegressionEvaluator:
 
     def test_uie_summary_includes_key_facts(self) -> TestResult:
         """UIE summary must mention deadline, Nina, risk, appendix, 48.5k."""
-        spec = QUERY_SPECS[3]
-        answer = self._run_query(spec)
+        query_str = "Summarize everything related to the UIE proposal."
+        answer = self._run_query(query_str)
         required = ["nina", "appendix", "risk", "48.5", "14:30"]
         score, missing = _check_content_required(answer, required)
         passed = score >= 0.6
@@ -377,8 +381,8 @@ class RegressionEvaluator:
 
     def test_uie_summary_no_stale_deadline(self) -> TestResult:
         """UIE summary must NOT say deadline is Apr 10 without correction."""
-        spec = QUERY_SPECS[3]
-        answer = self._run_query(spec)
+        query_str = "Summarize everything related to the UIE proposal."
+        answer = self._run_query(query_str)
         # If Apr 10 appears, it should also include correction language
         if "apr 10" in answer or "april 10" in answer:
             has_correction = any(
@@ -409,6 +413,103 @@ class RegressionEvaluator:
         ]
         return [t() for t in tests]
 
+    def run_generalization(self) -> list[TestResult]:
+        """Run the 3 unseen-query generalization tests."""
+        tests = [
+            self.test_who_is_waiting_on_me,
+            self.test_what_changed_recently,
+            self.test_which_projects_are_blocked,
+        ]
+        return [t() for t in tests]
+
+    # ── Unseen-query tests ─────────────────────────────────────────────────────
+    # These tests use questions NOT in the original preset queries.
+    # They test structural correctness, not dataset-specific golden answers.
+
+    def test_who_is_waiting_on_me(self) -> TestResult:
+        """'Who is waiting on me?' — answer must be non-empty and mention at least one person."""
+        query_str = "Who is waiting on me?"
+        t0 = time.time()
+        answer = self._run_query(query_str)
+        latency = time.time() - t0
+
+        # Structural check: answer should be a real response (> 20 chars)
+        has_content = len(answer.strip()) > 20
+
+        # At least one known person should appear — we check case-insensitively
+        known_people = ["nina", "ravi", "rhea", "cedric", "pari", "karan", "aarav", "mom"]
+        people_mentioned = [p for p in known_people if p in answer.lower()]
+        has_person = len(people_mentioned) > 0
+
+        passed = has_content and has_person
+        score = (0.5 if has_content else 0.0) + (0.5 if has_person else 0.0)
+        return TestResult(
+            name="generalization_who_waiting",
+            passed=passed,
+            score=score,
+            details=(
+                f"Answer length: {len(answer)} chars. "
+                f"People mentioned: {people_mentioned}. "
+                f"Latency: {latency:.1f}s"
+            ),
+            category="generalization",
+        )
+
+    def test_what_changed_recently(self) -> TestResult:
+        """'What changed recently?' — answer must mention an update or change."""
+        query_str = "What changed recently?"
+        t0 = time.time()
+        answer = self._run_query(query_str)
+        latency = time.time() - t0
+
+        # Answer should mention some kind of change/update language
+        change_signals = [
+            "updated", "changed", "moved", "revised", "new", "now", "latest",
+            "approved", "resolved", "modified", "confirmed",
+        ]
+        has_change_language = any(kw in answer.lower() for kw in change_signals)
+        has_content = len(answer.strip()) > 20
+
+        passed = has_content and has_change_language
+        score = (0.4 if has_content else 0.0) + (0.6 if has_change_language else 0.0)
+        return TestResult(
+            name="generalization_what_changed",
+            passed=passed,
+            score=score,
+            details=(
+                f"Answer length: {len(answer)} chars. "
+                f"Change language present: {has_change_language}. "
+                f"Latency: {latency:.1f}s"
+            ),
+            category="generalization",
+        )
+
+    def test_which_projects_are_blocked(self) -> TestResult:
+        """'Which projects are blocked?' — answer must mention at least one project."""
+        query_str = "Which projects are blocked?"
+        t0 = time.time()
+        answer = self._run_query(query_str)
+        latency = time.time() - t0
+
+        # Answer should contain at least one project or blocking concept
+        project_signals = ["uie", "southridge", "hiring", "blocked", "waiting", "dependency"]
+        has_project_ref = any(kw in answer.lower() for kw in project_signals)
+        has_content = len(answer.strip()) > 20
+
+        passed = has_content and has_project_ref
+        score = (0.4 if has_content else 0.0) + (0.6 if has_project_ref else 0.0)
+        return TestResult(
+            name="generalization_blocked_projects",
+            passed=passed,
+            score=score,
+            details=(
+                f"Answer length: {len(answer)} chars. "
+                f"Project/block reference: {has_project_ref}. "
+                f"Latency: {latency:.1f}s"
+            ),
+            category="generalization",
+        )
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 3. ONLINE EVAL FRAMEWORK (structural / latency)
@@ -426,17 +527,17 @@ class OnlineEvaluator:
     def __init__(self, engine: QueryEngine):
         self.engine = engine
 
-    def measure_latency_and_efficiency(self, specs: list[QuerySpec]) -> list[TestResult]:
+    def measure_latency_and_efficiency(self, queries: list[str]) -> list[TestResult]:
         results = []
-        for spec in specs:
+        for q in queries:
             t0 = time.time()
-            result = self.engine.run(spec)
+            result = self.engine.run(q)
             latency = time.time() - t0
 
             # Latency test: should finish within 30s (free-tier models can be slow)
             latency_ok = latency < 30.0
             results.append(TestResult(
-                name=f"latency_{spec.query[:30].replace(' ', '_')}",
+                name=f"latency_{q[:30].replace(' ', '_')}",
                 passed=latency_ok,
                 score=max(0, 1.0 - latency / 30.0),
                 details=f"Latency: {latency:.2f}s",
@@ -446,7 +547,7 @@ class OnlineEvaluator:
             # Context efficiency
             efficiency = result.token_estimate / 8000  # target budget
             results.append(TestResult(
-                name=f"context_efficiency_{spec.query[:20].replace(' ', '_')}",
+                name=f"context_efficiency_{q[:20].replace(' ', '_')}",
                 passed=efficiency <= 1.2,
                 score=min(1.0, 1.0 / max(efficiency, 0.1)),
                 details=f"Tokens used: {result.token_estimate} / 8000 target ({efficiency:.1%})",
@@ -457,7 +558,7 @@ class OnlineEvaluator:
             word_count = len(result.answer.split())
             length_ok = 50 <= word_count <= 600
             results.append(TestResult(
-                name=f"answer_length_{spec.query[:20].replace(' ', '_')}",
+                name=f"answer_length_{q[:20].replace(' ', '_')}",
                 passed=length_ok,
                 score=1.0 if length_ok else 0.5,
                 details=f"Answer word count: {word_count}",
@@ -525,9 +626,12 @@ def run_offline_only() -> EvalReport:
 
 
 def run_full_eval() -> EvalReport:
-    """Run offline + regression + online evals (requires LLM calls)."""
+    """Run offline + regression + generalization + online evals (requires LLM calls)."""
+    from core.project_builder import ProjectBuilder
     store = _load_store()
-    engine = QueryEngine(store, NOW)
+    project_builder = ProjectBuilder(NOW)
+    projects = project_builder.build_projects(store.memories)
+    engine = QueryEngine(store, NOW, projects=projects)
     report = EvalReport()
 
     # Offline
@@ -542,11 +646,17 @@ def run_full_eval() -> EvalReport:
     for result in regression_eval.run_all():
         report.add(result)
 
+    # Generalization (unseen queries)
+    console.print("\n[bold cyan]Running generalization tests (unseen queries)...[/bold cyan]")
+    for result in regression_eval.run_generalization():
+        report.add(result)
+
     # Online (latency, efficiency — subset of queries to keep it fast)
     console.print("\n[bold cyan]Running online evals (latency, efficiency)...[/bold cyan]")
     online_eval = OnlineEvaluator(engine)
     # Run on 2 queries only to keep overall eval reasonable
-    for result in online_eval.measure_latency_and_efficiency(QUERY_SPECS[:2]):
+    test_queries = ["What should I focus on today?", "What commitments am I at risk of missing?"]
+    for result in online_eval.measure_latency_and_efficiency(test_queries):
         report.add(result)
 
     return report
@@ -557,12 +667,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Memorae evaluation framework")
     parser.add_argument("--offline-only", action="store_true",
                         help="Run only deterministic tests (no LLM)")
+    parser.add_argument("--generalization-only", action="store_true",
+                        help="Run only the 3 unseen-query generalization tests")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING)
 
     if args.offline_only:
         report = run_offline_only()
+    elif args.generalization_only:
+        from core.project_builder import ProjectBuilder
+        store = _load_store()
+        projects = ProjectBuilder(NOW).build_projects(store.memories)
+        engine = QueryEngine(store, NOW, projects=projects)
+        regression_eval = RegressionEvaluator(engine)
+        report = EvalReport()
+        console.print("\n[bold cyan]Running generalization tests only...[/bold cyan]")
+        for result in regression_eval.run_generalization():
+            report.add(result)
     else:
         report = run_full_eval()
 

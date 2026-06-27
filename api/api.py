@@ -28,8 +28,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from core.config import SCENARIO_NOW
-from core.event_store import load_events, EventStore
-from core.query_engine import QueryEngine, QuerySpec, QUERY_SPECS, QueryResult
+from core.event_store import load_events
+from core.memory_extractor import MemoryExtractor
+from core.memory_store import MemoryStore
+from core.project_builder import ProjectBuilder
+from core.query_engine import QueryEngine, QueryResult
 from llm.llm_client import get_provider_info
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -60,25 +63,34 @@ app.add_middleware(
 )
 
 # ── Global state (initialized at startup) ─────────────────────────────────────
-_store: Optional[EventStore] = None
+_store: Optional[MemoryStore] = None
 _engine: Optional[QueryEngine] = None
 _now: Optional[datetime] = None
+_projects: dict = {}
 
 
 @app.on_event("startup")
 async def startup_event():
-    global _store, _engine, _now
+    global _store, _engine, _now, _projects
     _now = datetime.fromisoformat(SCENARIO_NOW.replace("Z", "+00:00"))
     if not DATA_PATH.exists():
         logger.error(f"Data file not found: {DATA_PATH}")
         return
     events = load_events(str(DATA_PATH))
-    _store = EventStore(events, _now)
-    _engine = QueryEngine(_store, _now)
+    extractor = MemoryExtractor()
+    memories = extractor.extract_memories(events)
+    
+    _store = MemoryStore(memories, _now)
+
+    # Build project state BEFORE constructing engine so it can be injected
+    project_builder = ProjectBuilder(_now)
+    _projects = project_builder.build_projects(memories)
+
+    _engine = QueryEngine(_store, _now, projects=_projects)
+
     stats = _store.stats()
     logger.info(
-        f"Memorae ready | {stats['total']} events | "
-        f"{stats['signal']} signal | {stats['noise']} noise | "
+        f"Memorae ready | {stats['total']} memories | "
         f"Provider: {get_provider_info()['provider']}"
     )
 
@@ -96,10 +108,6 @@ class QueryRequest(BaseModel):
         description="Patterns that MUST appear in selected events (exact match)."
     )
     top_k: int = Field(30, ge=1, le=100, description="Max events to retrieve before context packing")
-    system_instruction: Optional[str] = Field(
-        None,
-        description="Custom system prompt override. Uses a default if not provided."
-    )
 
     model_config = {
         "json_schema_extra": {
@@ -158,21 +166,8 @@ def _result_to_dict(result: QueryResult) -> dict:
     }
 
 
-def _spec_from_request(req: QueryRequest) -> QuerySpec:
-    keywords = req.keywords or req.query.lower().split()
-    system_instruction = req.system_instruction or (
-        f"You are a personal AI assistant. Today is {SCENARIO_NOW}. "
-        f"Answer this query based on the events: \"{req.query}\". "
-        f"Be specific, time-aware, and grounded in the provided context. "
-        f"When uncertain, say so explicitly."
-    )
-    return QuerySpec(
-        query=req.query,
-        keywords=keywords,
-        must_include=req.must_include or [],
-        top_k=req.top_k,
-        system_instruction=system_instruction,
-    )
+def _query_from_request(req: QueryRequest) -> str:
+    return req.query
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
@@ -192,7 +187,7 @@ async def health():
     return HealthResponse(
         status="ok" if _store is not None else "degraded",
         scenario_time=SCENARIO_NOW,
-        events_loaded=len(_store.events) if _store else 0,
+        events_loaded=len(_store.memories) if _store else 0,
         provider=pinfo["provider"],
         primary_model=pinfo["primary_model"],
         key_configured=pinfo["key_configured"],
@@ -200,22 +195,26 @@ async def health():
     )
 
 
+PRESET_QUERIES = [
+    "What should I focus on today?",
+    "What commitments am I at risk of missing?",
+    "What have I been procrastinating on?",
+    "Summarize everything related to the UIE proposal.",
+    "What personal/family tasks need my attention?",
+]
+
 @app.get("/queries", tags=["Queries"])
 async def list_preset_queries():
     """
     List all built-in preset queries.
-    These are the 5 queries from the assignment spec, pre-configured with
-    optimized keyword sets and system prompts.
     """
     return {
         "preset_queries": [
             {
                 "index": i,
-                "query": spec.query,
-                "keywords_count": len(spec.keywords),
-                "top_k": spec.top_k,
+                "query": query_str,
             }
-            for i, spec in enumerate(QUERY_SPECS)
+            for i, query_str in enumerate(PRESET_QUERIES)
         ]
     }
 
@@ -235,9 +234,8 @@ async def run_query(req: QueryRequest):
     index, then pass the same query text here.
     """
     _require_engine()
-    spec = _spec_from_request(req)
     try:
-        result = _engine.run(spec)
+        result = _engine.run(req.query)
         return _result_to_dict(result)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=f"LLM error: {exc}")
@@ -263,14 +261,14 @@ async def run_all_preset_queries():
     """
     _require_engine()
     results = []
-    for spec in QUERY_SPECS:
+    for query_str in PRESET_QUERIES:
         try:
-            result = _engine.run(spec)
+            result = _engine.run(query_str)
             results.append(_result_to_dict(result))
         except Exception as exc:
-            logger.error(f"Failed query '{spec.query}': {exc}")
+            logger.error(f"Failed query '{query_str}': {exc}")
             results.append({
-                "query": spec.query,
+                "query": query_str,
                 "answer": f"[ERROR: {exc}]",
                 "model_used": "none",
                 "context_stats": {},
@@ -318,4 +316,22 @@ async def event_stats():
         "noise_events": stats["noise"],
         "events_with_urgency": stats["with_urgency"],
         "data_file": str(DATA_PATH),
+    }
+
+@app.get("/projects", tags=["Intelligence"])
+async def get_projects():
+    """Return Project Health and status intelligence derived from the memory stream."""
+    return {
+        "projects": [
+            {
+                "name": p.name,
+                "status": p.status,
+                "health": p.health,
+                "open_commitments": p.open_commitments,
+                "overdue_commitments": p.overdue_commitments,
+                "blocked_dependencies": p.blocked_dependencies,
+                "key_people": list(p.key_people),
+            }
+            for p in _projects.values()
+        ]
     }
