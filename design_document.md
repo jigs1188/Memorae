@@ -1,16 +1,16 @@
 # Memorae Design Document
 
 ## 1. Architecture Rationale
-Memorae is designed as an offline-capable, highly modular personal memory intelligence engine. The core philosophy is to decouple the retrieval logic (Information Retrieval) from the generative logic (LLMs). This separation ensures that the context provided to the model is deterministic, rankable, and inspectable independently of the LLM chosen. By utilizing a hybrid retrieval strategy and a deterministic contradiction resolver, we prevent hallucination of critical facts (e.g., dates and numbers) before the LLM even sees the data.
+Memorae is designed as an offline-capable, highly modular personal memory intelligence engine. The core philosophy is to decouple the retrieval logic (Information Retrieval) from the generative logic (LLMs). This separation ensures that the context provided to the model is deterministic, rankable, and inspectable independently of the LLM chosen. By utilizing a hybrid retrieval strategy and a deterministic contradiction resolver, we reduces the likelihood of hallucinating stale or conflicting facts by resolving contradictions before context construction. The retrieval layer remains fully deterministic and inspectable, allowing every retrieved memory to be traced back to its ranking signals before generation.
 
 ## 2. Memory Extraction
-Raw events (`core/event_store.py`) are passed to the `MemoryExtractor` (`core/memory_extractor.py`) where unstructured text is transformed into semi-structured `Memory` objects.
+Raw events (`core/event_store.py`) are passed to the `MemoryExtractor` (`core/memory_extractor.py`) where unstructured text is transformed into semi-structured `Memory` objects. Memory extraction intentionally avoids LLM inference during ingestion. Rule-based extraction produces deterministic metadata, enables offline execution, reduces cost, and avoids introducing non-determinism into the retrieval layer.
 - **Noise Filtering:** Events containing known low-signal phrases (e.g., OTPs, coffee machine chat) are skipped early.
-- **Entity Identification:** Uses a combination of predefined dataset keywords (for deterministic tracking) and spaCy's NER (for zero-shot fallback on unseen entities like `ORG` or `PERSON`).
-- **State Transitions:** Captures generic workflow events (e.g., `X is now approved`, `Y is blocked`) using regex heuristics, mapping them to explicit `state_transitions` properties.
+- **Entity Identification:** Uses a combination of predefined dataset keywords (for deterministic tracking) and spaCy's NER (for spaCy NER fallback on unseen entities like `ORG` or `PERSON`).
+- **State Transitions:** Captures common workflow patterns using rule-based extraction, mapping them to explicit `state_transitions` properties.
 
 ## 3. Hybrid Retrieval & Ranking
-The `MemoryStore` (`core/memory_store.py`) employs a multi-dimensional scoring algorithm to rank events based on their relevance to a user's query.
+The `MemoryStore` (`core/memory_store.py`) employs a multi-dimensional scoring algorithm to rank events based on their relevance to a user's query. BM25 provides strong lexical recall for exact project names, people, identifiers, and uncommon terminology, while semantic retrieval captures paraphrases and natural-language similarity. Combining both reduces failure cases compared with either approach alone.
 The final relevance score is a weighted sum:
 - **Semantic (30%)**: Captures intent via FAISS L2 distance (`all-MiniLM-L6-v2`).
 - **BM25 (20%)**: Captures exact terminology and rare keywords (`rank_bm25`).
@@ -21,7 +21,7 @@ The final relevance score is a weighted sum:
 - **Source Trust (5%)**: Base confidence multiplier (e.g., Calendar events > WhatsApp chatter).
 
 ## 4. Contradiction Handling
-Before context is packed for the LLM, the `ContextBuilder` runs a deterministic contradiction detector.
+Before context is packed for the LLM, the `ContextBuilder` runs a deterministic contradiction detector. Contradiction resolution operates before generation because stale facts are easier to eliminate deterministically than asking an LLM to reconcile conflicting evidence.
 1. It groups events into "topics" using a lightweight 2-word fingerprint (ignoring stop words).
 2. It scans for explicit dates (`\d{4}-\d{2}-\d{2}`, `Monday`, etc.) and numbers (`$42k`, `48.5`).
 3. If the earliest and latest events in a topic cluster disagree on these values, it emits an `UPDATE` annotation.
@@ -45,7 +45,7 @@ Memorae relies on a multi-tiered evaluation framework (`evaluation.py`):
 - **Online Metrics**: Tracks latency, context utilization (token efficiency), and model fallback behavior.
 
 ## 8. Scalability
-- **Vector Search**: Integrating FAISS allows the semantic search to scale efficiently. In production, this can be offloaded to a dedicated vector database (e.g., Pinecone, Milvus).
+- **Vector Search**: Integrating FAISS allows the semantic search to scale efficiently. In production, this can be offloaded to any production vector database (Pinecone, Milvus, pgvector).
 - **In-Memory BM25**: While `rank_bm25` is in-memory and fast for thousands of events, scaling to millions of events would require migrating to an inverted index datastore like Elasticsearch.
 - **Batch Processing**: The `MemoryExtractor` is stateless and can be parallelized via multiprocessing for bulk ingestion.
 

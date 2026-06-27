@@ -6,6 +6,18 @@ A personal memory query engine that ingests raw event streams (messages, calenda
 
 Memorae acts as an intelligent context engine over mock personal data. It uses hybrid retrieval (BM25 + Semantic) combined with metadata scoring (recency, urgency, source trust) to build highly relevant contexts for LLMs. It features deterministic contradiction resolution and supports multi-provider model fallback chains.
 
+## Why this architecture?
+
+Instead of allowing the LLM to search all events directly, Memorae separates retrieval from generation.
+
+Retrieval is deterministic.
+
+Generation is probabilistic.
+
+Only the highest-quality context reaches the LLM.
+
+
+
 ## 2. Architecture Diagram
 
 ```mermaid
@@ -18,6 +30,34 @@ graph TD
     F -->|Contradiction Resolution| G[LLM Client]
     G --> H[Final Answer & Reasoning]
 ```
+
+```
+User Query
+      │
+      ▼
+Entity Extraction
+      │
+      ▼
+Hybrid Retrieval
+(BM25 + FAISS)
+      │
+      ▼
+Metadata Ranking
+      │
+      ▼
+Contradiction Resolution
+      │
+      ▼
+Context Builder
+      │
+      ▼
+LLM
+      │
+      ▼
+Answer
+```
+
+
 
 ## 3. Retrieval Pipeline
 
@@ -110,7 +150,7 @@ api/
 
 ## 9. Design Choices
 
-- **Dataset-Agnostic Core**: Hardcoded logic was removed. `MemoryExtractor` accepts overrides, and contradiction detection works on arbitrary topics based on leading content words.
+- **Dataset-Agnostic Core**: Retrieval is driven by extracted metadata, hybrid ranking, and semantic similarity rather than query-specific pipelines.
 - **Minimal Dependencies**: We stripped out heavy visualization tools and front-end dependencies to keep the engine maximally lean, focusing entirely on the core retrieval and generation loop.
 - **Graceful Fallbacks**: The system falls back to regex/keyword matching if heavier ML libraries (like spaCy or FAISS) are unavailable in the environment.
 
