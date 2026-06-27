@@ -27,4 +27,6 @@ targeted_results*.json
 unseen_retrieval_audit.json
 eval_offline_results.json
 ui/
+evaluation/
+final_review_eval.py
 

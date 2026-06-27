@@ -695,8 +695,8 @@ if __name__ == "__main__":
         "pass_rate": report.pass_rate,
         "results": [
             {
-                "name": r.name, "category": r.category,
-                "passed": r.passed, "score": r.score, "details": r.details,
+                "name": str(r.name), "category": str(r.category),
+                "passed": bool(r.passed), "score": float(r.score), "details": str(r.details),
             }
             for r in report.results
         ],
